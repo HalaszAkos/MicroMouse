@@ -1,0 +1,336 @@
+#include <Arduino.h>
+#include <Wire.h>
+#include "BluetoothSerial.h"
+#include <QuickPID.h>
+#include <TimerEvent.h> 
+#include <stdio.h>
+#include <math.h>
+#include <stdlib.h>
+
+
+
+//PWM initializing--------------------------
+#define PWM1_Ch    0
+#define PWM2_Ch    1
+#define PWM3_Ch    2
+#define PWM4_Ch    3
+#define PWM_Res   8  //4
+#define PWM_Freq  500 //1000
+int PWM_START = 93; // start = 26 jó előre érték
+int PWM_START1= 98; //27
+//int PWM_Drift = 20;
+int PWM_STOP = 0;
+//-----------------------------------------
+
+
+//init Input outputs-----------------------
+//motor direction:
+int Motor_backward_left = 4; //IO4 BAL hatra
+int Motor_forward_left = 2; //IO2 BAL elore
+int Motor_forward_right = 12; //IO12 Jobb elore2
+int Motor_backward_right = 15; //IO15 Jobb hatra2
+//Morot encoders:
+int ENCA=13;
+int ENCB=14;
+//-----------------------------------------
+
+
+//Global variables-------------------------
+//encoder 0-1 switch
+//int before1=0;
+//int before2=0;
+//encoder counting change:
+//int counter1=0;
+//int counter2=0;
+//received value from nano (4x IR sensor)
+
+uint16_t IRSensor1 = 0;
+uint16_t IRSensor2 = 0;
+uint16_t IRSensor3 = 0;
+uint16_t IRSensor4 = 0;
+
+int16_t L_Enc_Position = 0;
+int16_t R_Enc_Position = 0;
+int16_t L_Enc_Speed = 0;
+int16_t R_Enc_Speed = 0;
+
+
+// cycle time declarations
+TimerEvent Timer_10ms;
+
+TimerEvent Timer_20ms;
+TimerEvent Timer_40ms;
+TimerEvent Timer_100ms;
+TimerEvent Timer_500ms;
+
+
+
+//calculate distance
+//-----------------------------------------
+double distance_side2[] = {5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200};
+double distance_side3[] = {5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200};
+
+//balra
+double sensor_data_side2[]= {994, 991, 987, 984, 969, 863, 768, 664, 613, 541, 495, 456, 423, 381, 362, 339, 330, 310, 291, 281, 260, 239, 226, 214, 202, 193, 189, 185, 180, 176};
+//jobbra
+double sensor_data_side3[]= {996, 993, 991, 987, 982, 947, 834, 759, 677, 608, 569, 524, 484, 462, 439, 383, 367, 344, 317, 309, 283, 262, 248, 232, 218, 209, 200, 194, 188, 183};
+
+//------------------------------------------
+double distance_front1[] = {0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210, 220, 230, 240, 250, 260, 270, 280, 290, 300};
+double distance_front4[]= {0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210, 220, 230, 240, 250, 260, 270, 280, 290, 300};
+//bal
+double sensor_data_front1[]={997, 992, 987, 966, 798, 661, 574, 499, 440, 389, 350, 314, 285, 266, 247, 232, 219, 207, 197, 188, 180, 172, 167, 163, 158, 153, 149, 148, 148, 143, 139};
+//jobb
+double sensor_data_front4[]={993, 986, 946, 768, 644, 551, 478, 425, 383, 345, 317, 292, 272, 256, 242, 230, 220, 212, 206, 199, 192, 186, 180, 176, 171, 167, 166, 164, 162, 156, 153};
+
+
+
+//Bluetooth---------------------------------------------------------------------------------------------------------------
+const char *pin = "1234"; // Change this to more secure PIN.
+ 
+String device_name = "ESP32-BT-Slave";
+ 
+#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
+#error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
+#endif
+ 
+#if !defined(CONFIG_BT_SPP_ENABLED)
+#error Serial Bluetooth not available or not enabled. It is only available for the ESP32 chip.
+#endif
+ 
+BluetoothSerial SerialBT;
+//------------------------------------------------------------------------------------------------------
+
+// put function declarations here:
+
+ void stop();
+ void runPid();
+double predict_distance(double sensor_value,double sensor_data[],double distance[], int array_range);
+//PID
+float speed = 600;
+
+
+
+// PID
+const uint32_t sampleTimeUs = 100000; // 100ms
+volatile bool computeNow = false;
+
+//Define Variables we'll be connecting to
+float Setpoint, Input1,Input2, Output1,Output2;
+
+// Üresen ezzel a beállítással 600mm/s ra stabil volt a rendszer
+// float Kp = 0.1, Ki = 0.7, Kd = 0.025;
+
+float Kp = 0.45, Ki = 0.7, Kd = 0.3;
+
+//specify the links
+QuickPID myPID1(&Input1, &Output1, &Setpoint);
+QuickPID myPID2(&Input2, &Output2, &Setpoint);
+
+
+volatile int counter1 = 0; // Counter for encoder transitions for motor 1
+volatile int counter2 = 0; // Counter for encoder transitions for motor 2
+
+
+void Cycle_10ms();
+void Cycle_20ms();
+void Cycle_40ms();
+void Cycle_100ms();
+void Cycle_500ms();
+
+
+void setup() {
+  Wire.setPins(3,1);
+  Wire.begin();   // join I2C bus as Slave with address 0x08
+  
+  
+  SerialBT.begin(device_name); //Bluetooth device name
+  #ifdef USE_PIN
+    SerialBT.setPin(pin);
+    //Serial.println("Using PIN");
+  #endif
+
+  pinMode(ENCA, INPUT_PULLUP);
+  pinMode(ENCB, INPUT_PULLUP);
+
+  //pwm
+  ledcAttachPin(Motor_forward_left, PWM1_Ch);
+  ledcSetup(PWM1_Ch, PWM_Freq, PWM_Res);
+
+  ledcAttachPin(Motor_forward_right, PWM2_Ch);
+  ledcSetup(PWM2_Ch, PWM_Freq, PWM_Res);
+
+  ledcAttachPin(Motor_backward_left, PWM3_Ch);
+  ledcSetup(PWM3_Ch, PWM_Freq, PWM_Res);
+
+  ledcAttachPin(Motor_backward_right, PWM4_Ch);
+  ledcSetup(PWM4_Ch, PWM_Freq, PWM_Res);
+
+  ledcWrite(PWM1_Ch, PWM_STOP);// baloldali előre
+  ledcWrite(PWM2_Ch, PWM_STOP);//jobb elől
+
+  ledcWrite(PWM3_Ch, PWM_STOP); //bal hátra
+  ledcWrite(PWM4_Ch, PWM_STOP);// jobb oldali hátra
+
+  //ledcWrite(PWM1_Ch, 101);// baloldali előre pwm start
+  //ledcWrite(PWM2_Ch, 101);//jobb elől pwm start 1
+
+  //ledcWrite(PWM3_Ch, PWM_STOP); //bal hátra
+  //ledcWrite(PWM4_Ch, PWM_STOP);// jobb oldali hátra
+
+  //apply PID gains
+  myPID1.SetTunings(Kp, Ki, Kd);
+  myPID2.SetTunings(Kp, Ki, Kd);
+  //turn the PID on
+  myPID1.SetMode(QuickPID::Control::automatic);
+  myPID2.SetMode(QuickPID::Control::automatic);
+
+  
+
+
+  Timer_10ms.set(10, Cycle_10ms);
+  Timer_20ms.set(20, Cycle_20ms);
+  Timer_40ms.set(40, Cycle_40ms);
+  Timer_100ms.set(100, Cycle_100ms);
+  Timer_500ms.set(500, Cycle_500ms);
+
+}
+
+void loop() {
+Setpoint = speed;
+  
+if(Wire.available()) {	      // read response from slave 0x08
+		IRSensor1  = Wire.read() << 8; 
+    IRSensor1 |= Wire.read();
+    IRSensor2  = Wire.read() << 8; 
+    IRSensor2 |= Wire.read();
+    IRSensor3  = Wire.read() << 8; 
+    IRSensor3 |= Wire.read();
+    IRSensor4  = Wire.read() << 8; 
+    IRSensor4 |= Wire.read();
+
+    L_Enc_Position  = Wire.read() << 8; 
+    L_Enc_Position |= Wire.read();
+    R_Enc_Position  = Wire.read() << 8; 
+    R_Enc_Position |= Wire.read();
+
+    L_Enc_Speed  = Wire.read() << 8;
+    L_Enc_Speed |= Wire.read();
+    R_Enc_Speed  = Wire.read() << 8;
+    R_Enc_Speed |= Wire.read();
+
+
+
+
+	}
+  Timer_10ms.update();
+  Timer_40ms.update();
+  Timer_20ms.update();
+  Timer_100ms.update();
+  Timer_500ms.update();
+}
+
+void Cycle_10ms(){
+ 
+}
+void Cycle_40ms(){
+ runPid();
+}
+
+
+void Cycle_20ms(){
+  Wire.beginTransmission(0x08);
+  Wire.write(counter1 >> 8);
+  Wire.write(counter1 & 255);
+  Wire.endTransmission();
+  Wire.requestFrom(0x08, 16);
+}
+
+void Cycle_100ms(){
+ 
+}
+
+void Cycle_500ms(){
+
+  //bal elore
+  
+  double predicted_distance1=predict_distance(IRSensor1,sensor_data_front1,distance_front1,31);
+
+  //bal oldalra
+  double predicted_distance2=predict_distance(IRSensor2,sensor_data_side2,distance_side2,30);
+  //jobb odalra
+  double predicted_distance3=predict_distance(IRSensor3,sensor_data_side3,distance_side3,30);
+  //jobb elore
+  double predicted_distance4=predict_distance(IRSensor4,sensor_data_front4,distance_front4,31);
+
+ 
+  SerialBT.print("Le:");
+  SerialBT.print(IRSensor1);
+  SerialBT.print(" , predict dis: ");
+  SerialBT.print(predicted_distance1);
+  SerialBT.print(", ");
+  SerialBT.print("Lo:");
+  SerialBT.print(IRSensor2);
+  SerialBT.print(" , predict dis: ");
+  SerialBT.print(predicted_distance2);
+  SerialBT.print(", ");
+  SerialBT.print("Re:");
+  SerialBT.print(IRSensor4);
+  SerialBT.print(" , predict dis: ");
+  SerialBT.print(predicted_distance4);
+  SerialBT.print(", ");
+  SerialBT.print("Ro:");
+  SerialBT.println(IRSensor3);
+  SerialBT.print(" , predict dis: ");
+  SerialBT.print(predicted_distance3);
+
+  
+  SerialBT.print("Lp:");
+  SerialBT.print(L_Enc_Position);
+  SerialBT.print(", ");
+  SerialBT.print("Rp:");
+  SerialBT.print(R_Enc_Position);
+  SerialBT.print(", ");
+  SerialBT.print("Ls:");  
+  SerialBT.print(L_Enc_Speed);
+  SerialBT.print(", ");
+  SerialBT.print("Rs:");
+  SerialBT.println(R_Enc_Speed);
+  SerialBT.print("output1-2:");
+  SerialBT.print(Output1);
+  SerialBT.print("output1-2:");
+  SerialBT.println(Output2);
+  
+}
+
+  
+  void stop() {
+    ledcWrite(PWM1_Ch, PWM_STOP);// baloldali előre
+    ledcWrite(PWM2_Ch, PWM_STOP);//jobb elől
+
+    ledcWrite(PWM3_Ch, PWM_STOP); //bal hátra
+    ledcWrite(PWM4_Ch, PWM_STOP);// jobb oldali hátra
+  }
+
+
+void runPid(){
+  Input1 = (L_Enc_Speed);
+  Input2 = (R_Enc_Speed);
+  myPID1.Compute();
+  myPID2.Compute();
+  //analogWrite(MotorPWM, Output);
+  ledcWrite(PWM1_Ch, Output1);
+  ledcWrite(PWM2_Ch, Output2);
+
+}
+double predict_distance(double sensor_value,double sensor_data[],double distance[], int array_range) {
+    // Linear interpolation
+    int n = array_range;
+    for (int i = 1; i < n; ++i) {
+        if (sensor_value <= sensor_data[i - 1] && sensor_value >= sensor_data[i]) {
+            double slope = (distance[i] - distance[i - 1]) / (sensor_data[i] - sensor_data[i - 1]);
+            return distance[i - 1] + slope * (sensor_value - sensor_data[i - 1]);
+    
+        }
+    } return -1; // Invalid sensor value
+}
