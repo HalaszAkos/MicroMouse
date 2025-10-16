@@ -18,6 +18,7 @@ This project implements a complete micromouse solution capable of autonomously n
 ### Software Components
 - **Embedded Control**: C++ firmware for ESP32 and Arduino Nano
 - **Maze Algorithms**: Python-based pathfinding and optimization algorithms
+- **Simulation Environment**: MMS (Micromouse Simulator) for algorithm testing
 - **Communication**: Multi-protocol support (I2C, Bluetooth, Serial)
 
 ## 📁 Project Structure
@@ -31,6 +32,9 @@ micromouse-main/
 │       ├── location.py                # Location and cell management
 │       ├── main.py                    # Main algorithm controller
 │       └── state.py                   # State management
+├── mms_simulation_algorithm/          # MMS Simulation implementation
+│   ├── asd2copylothelp.cpp           # C++ algorithm for MMS simulator
+│   └── asd2copylothelp.exe           # Compiled executable
 ├── Mouse 1/                           # Primary mouse implementation
 │   ├── esp.cpp                        # ESP32 main controller code
 │   └── nano.cpp                       # Arduino Nano sensor code
@@ -114,6 +118,12 @@ micromouse-main/
    python maze_runner.py
    ```
 
+5. **MMS Simulation Testing**:
+   ```bash
+   cd mms_simulation_algorithm
+   ./asd2copylothelp.exe
+   ```
+
 ### Pin Configuration
 
 #### ESP32 Connections:
@@ -139,6 +149,33 @@ micromouse-main/
 - `matrix()`: Calculates Manhattan distance to goal
 - `flood_fill()`: Implements flood fill pathfinding
 - `dead_end`: Handles dead-end detection and backtracking
+
+## 🖥️ MMS Simulation Environment
+
+### What is MMS?
+**MMS (Micromouse Simulator)** is a powerful simulation environment that makes it easy to write and test maze-solving code without a physical robot.
+
+### Key Features:
+- **Virtual Testing**: Test how your robot would behave in a real maze
+- **Algorithm Visualization**: Visualize what your robot is thinking
+- **Wall Mapping**: Show known/unknown walls in real-time
+- **Cell Customization**: Set colors and display ASCII text on cells
+- **Crash Simulation**: Simulate crash-and-reset scenarios
+- **Custom Mazes**: Test algorithms on custom maze files
+- **Language Agnostic**: Write code in any programming language
+
+### Getting Started with MMS:
+1. **Download MMS**: https://github.com/mackorone/mms
+2. **Compile Algorithm**: Use the provided C++ implementation
+3. **Run Simulation**: Execute the algorithm in the MMS environment
+4. **Analyze Results**: Visualize pathfinding and optimization
+
+### Included Implementation:
+- **C++ Algorithm**: `mms_simulation_algorithm/asd2copylothelp.cpp`
+- **Executable**: Pre-compiled version for immediate testing
+- **Compatible**: Works with standard MMS simulator interface
+
+For more information about Micromouse competitions, see the [Micromouse Wikipedia page](https://en.wikipedia.org/wiki/Micromouse).
 
 ## 🔧 Configuration Options
 
